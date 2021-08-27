@@ -6,9 +6,8 @@ import sqlalchemy
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, func
-import datetime as dt
-from flask import Flask, jsonify
 
+# create engine to hawaii.sqlite
 engine = create_engine("sqlite:///Resources/hawaii.sqlite")
 
 # reflect an existing database into a new model
@@ -16,9 +15,40 @@ Base = automap_base()
 # reflect the tables
 Base.prepare(engine, reflect = True)
 
-# Save reference to the table
+# View all of the classes that automap found
+Base.classes.keys()
+
+# Save references to each table
 Measurement = Base.classes.measurement
 Station = Base.classes.station
+
+# Create our session (link) from Python to the DB
+session = Session(bind = engine)
+
+# Find the most recent date in the data set.
+session.query(Measurement.date).order_by(Measurement.date.desc()).first()
+
+# Design a query to retrieve the last 12 months of precipitation data and plot the results. 
+# Starting from the most recent data point in the database. 
+
+# Calculate the date one year from the last date in data set.
+dates = dt.date(2017,8,23)-dt.timedelta(days = 365)
+
+# Perform a query to retrieve the data and precipitation scores
+precipitation_scores = session.query(Measurement.date, Measurement.prcp).\
+    filter(Measurement.date >= "2016-08-23").\
+    order_by(Measurement.date).all()
+precipitation_scores
+
+# Save the query results as a Pandas DataFrame and set the index to the date column
+precip_df = pd.DataFrame(precipitation_scores, columns=['Date', 'Precipitation'])
+precip_df.set_index('Date', inplace=True)
+
+# Sort the dataframe by date
+precip_df = precip_df.sort_values(by='Date', ascending=True)
+
+
+from flask import flask, jsonify
 
 #################################################
 # Flask Setup
@@ -42,6 +72,10 @@ def Home_page():
         f"/api/v1.0/&lt;date&gt;/&lt;date&gt; (replace &lt;date&gt;/&lt;date&gt; with date in yyyy-mm-dd/yyyy-mm-dd format)<br>"
     )
 
+# /api/v1.0/precipitation
+# convert the query results to a dictionary using date as the key and prep as the value
+# return the JSON representation
+
 @app.route("/api/v1.0/precipitation")
 def precipitation():
     # Create our session (link) from Python to the DB
@@ -53,24 +87,15 @@ def precipitation():
     precipitation_scores = session.query(Measurement.date, Measurement.prcp).\
             filter(Measurement.date >= (2016, 8, 23).\
             order_by(Measurement.date).all()
-    precipitation_scores
     
-    all_precipitation = []
-    for date, prcp in results:
-        precipitation_dict = {}
-        precipitation_dict["Date"] = date
-        precipitation_dict["Precipitation in"] = prcp
-        all_precipitation.append(precipitation_dict)
-
-    return jsonify(all_precipitation)
-
+    
 @app.route("/api/v1.0/stations")
 def stations():
     # Return a JSON list of stations from the dataset.
     session = Session(bind = engine)
     #     """Return a list of passenger data including the name, age, and sex of each passenger"""
     # Query all stations
-    results = session.query(Station.station, Station.name).all()
+    session.query(Station.station, Station.name).all()
     session.close()
 #     Station_list = list(results) #list(np.ravel(results))
     Station_list = []
@@ -90,12 +115,12 @@ def tobs():
     dates = dt.date(2017, 8, 23) - dt.timedelta(days=365)
     dates # datetime.date(2016, 8, 23)
     # Query all stations
-    results = session.query(Measurement.date, Measurement.tobs)\
+    precipitation_scores = session.query(Measurement.date, Measurement.tobs)\
                 .filter(Measurement.station == 'USC00519281', Measurement.date.between(dates, dt.date(2017, 8, 23)))\
                 .group_by(Measurement.date)\
                 .order_by(Measurement.date)
     session.close()
-#     temp_obser_12 = list(np.ravel(results))
+
     tobs_list = []
     for tob in results:
         d={
@@ -105,43 +130,7 @@ def tobs():
         tobs_list.append(d)
     return jsonify(tobs_list)
 
-# When given the start only, calculate `TMIN`, `TAVG`, and `TMAX` for all dates greater than and equal to the start date.
-# Start Day Route
-@app.route("/api/v1.0/<start_date>")
-def start(start_date):
-    range_list = []
-    if len(start_date) == 10:
-        session = Session(engine)
-        range_calc = session.query(Measurement.date.label("Date"), func.min(Measurement.tobs).label("Min"),\
-                               func.avg(Measurement.tobs).label("Avg"), func.max(Measurement.tobs).label("Max")).\
-        filter(Measurement.date >= start_date).\
-        group_by(Measurement.date).all()
-        session.close()
-        for r in range_calc:
-            range_list.append(f'date: {r.Date} Min temperature:{r.Min} Avg temperature:{round(r.Avg,2)}, Max temperature: {r.Max}')       
-    else:
-        range_list.append(f'Incorrect date {start_date} format, should be YYYY-MM-DD')
-    return jsonify(range_list)
 
-@app.route("/api/v1.0/<start_date>/<end_date>")
-def range(start_date,end_date):
-    range_list = []
-    if len(start_date) == 10 and len(end_date) == 10:
-        session = Session(engine)
-        range_calc = session.query(Measurement.date.label("Date"), func.min(Measurement.tobs).label("Min"),\
-                                   func.avg(Measurement.tobs).label("Avg"), func.max(Measurement.tobs).label("Max")).\
-        filter(Measurement.date.between(start_date,end_date)).\
-        group_by(Measurement.date).all()
-        session.close()
-        # Convert List of Tuples Into Normal List
-    #     range_list = list(range_calc)
-    #     for date in range_calc:
-        for r in range_calc:
-            range_list.append(f'Date: {r.Date}, Min temperature:{r.Min}, Avg temperature:{round(r.Avg,2)}, Max temperature: {r.Max}')
-    else:
-        range_list.append(f'Incorrect date {start_date}/{end_date} format, should be YYYY-MM-DD/YYYY-MM-DD')
-    # Return JSON List calculate `TMIN`, `TAVG`, and `TMAX` range
-    return jsonify(range_list)
 
 if __name__ == '__main__':
     app.run(debug=True)
